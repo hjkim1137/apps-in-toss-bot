@@ -1,0 +1,25 @@
+{
+  "name": "apps-in-toss-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "운영 알림 봇 — 유저 증감 다이제스트 + 텔레그램 슬래시 조회 (사주몬·뺄래낼래 공통)",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "setup:webhook": "tsx scripts/setup-webhook.ts",
+    "preview:digest": "tsx scripts/trigger-local.ts",
+    "send:digest": "tsx scripts/trigger-local.ts --send"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@vercel/node": "^3.2.0",
+    "dotenv": "^16.4.5",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  }
+}
