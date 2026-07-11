@@ -3,7 +3,7 @@
 // 실제 발송:  npm run send:digest
 import "dotenv/config";
 import { buildDigest } from "../lib/digest";
-import { sendMessage } from "../lib/telegram";
+import { broadcast } from "../lib/telegram";
 import { env } from "../lib/env";
 
 const shouldSend = process.argv.includes("--send");
@@ -15,8 +15,8 @@ async function main() {
   console.log("\n------------------------------\n");
 
   if (shouldSend) {
-    await sendMessage(env.TELEGRAM_CHAT_ID, text);
-    console.log("텔레그램으로 발송했어요.");
+    await broadcast(env.TELEGRAM_CHAT_IDS, text);
+    console.log(`텔레그램으로 발송했어요 (${env.TELEGRAM_CHAT_IDS.length}명).`);
   } else {
     console.log("발송하려면 --send 플래그를 붙이세요 (npm run send:digest).");
   }

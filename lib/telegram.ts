@@ -19,6 +19,17 @@ export async function sendMessage(chatId: string | number, text: string): Promis
   }
 }
 
+/** 여러 chat_id 로 같은 메시지 발송. 한 명 실패해도 나머지는 계속 보낸다. */
+export async function broadcast(chatIds: string[], text: string): Promise<void> {
+  await Promise.all(
+    chatIds.map((id) =>
+      sendMessage(id, text).catch((e) => {
+        console.error(`sendMessage(${id}) 실패:`, (e as Error).message);
+      }),
+    ),
+  );
+}
+
 export interface BotCommand {
   command: string; // 영문 소문자만 (텔레그램 제약)
   description: string;

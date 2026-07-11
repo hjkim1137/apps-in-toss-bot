@@ -21,8 +21,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const chatId = message?.chat?.id;
   const text: string = message?.text ?? "";
 
-  // 2) 화이트리스트 — 등록된 chat_id 가 아니면 무응답 종료(정보 노출 없음)
-  if (chatId == null || String(chatId) !== String(env.TELEGRAM_CHAT_ID)) {
+  // 2) 화이트리스트 — 등록된 chat_id 목록에 없으면 무응답 종료(정보 노출 없음)
+  if (chatId == null || !env.TELEGRAM_CHAT_IDS.includes(String(chatId))) {
     return res.status(200).json({ ok: true });
   }
 

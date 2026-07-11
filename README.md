@@ -60,6 +60,7 @@ PLNL_SUPABASE_URL            PLNL_SERVICE_ROLE_KEY
 THREADS_ACCESS_TOKEN(선택)    CRON_SECRET
 ```
 
+- `TELEGRAM_CHAT_ID` 은 쉼표로 여러 명 지정 가능(화이트리스트 + 다이제스트 수신자). 예: `111,222`. 각자 봇에게 Start 필요.
 - `TELEGRAM_WEBHOOK_SECRET`, `CRON_SECRET` 은 임의의 긴 랜덤 문자열로 직접 생성.
 - service role 키·토큰은 **Vercel env 에만**. 레포/클라이언트에 절대 커밋 금지.
 
@@ -102,7 +103,7 @@ npm run setup:webhook -- https://<배포도메인>/api/telegram
 ## 보안 체크리스트
 
 - webhook: `X-Telegram-Bot-Api-Secret-Token` = `TELEGRAM_WEBHOOK_SECRET` (불일치 401)
-- `message.chat.id === TELEGRAM_CHAT_ID` 아니면 무응답 종료
+- `message.chat.id` 가 `TELEGRAM_CHAT_ID` 목록(쉼표 구분)에 없으면 무응답 종료
 - cron: `Authorization: Bearer ${CRON_SECRET}` 검증
 - service role 키·토큰은 Vercel env 에만
 - 봇 응답에 개인정보 미포함 — 집계 숫자만

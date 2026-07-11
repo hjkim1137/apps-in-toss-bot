@@ -17,8 +17,12 @@ export const env = {
   get TELEGRAM_BOT_TOKEN() {
     return required("TELEGRAM_BOT_TOKEN");
   },
-  get TELEGRAM_CHAT_ID() {
-    return required("TELEGRAM_CHAT_ID");
+  /** 쉼표로 구분된 chat_id 목록 (명령 화이트리스트 + 다이제스트 수신자 겸용) */
+  get TELEGRAM_CHAT_IDS(): string[] {
+    return required("TELEGRAM_CHAT_ID")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
   },
   get TELEGRAM_WEBHOOK_SECRET() {
     return required("TELEGRAM_WEBHOOK_SECRET");

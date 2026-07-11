@@ -3,7 +3,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { env } from "../../lib/env";
 import { buildDigest } from "../../lib/digest";
-import { sendMessage } from "../../lib/telegram";
+import { broadcast } from "../../lib/telegram";
 import { refreshTokenIfNeeded } from "../../lib/threads";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -24,13 +24,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }));
 
     const text = await buildDigest();
-    await sendMessage(env.TELEGRAM_CHAT_ID, text);
+    await broadcast(env.TELEGRAM_CHAT_IDS, text);
 
     return res.status(200).json({ ok: true, token });
   } catch (e) {
     const message = (e as Error).message;
     // 실패도 조용히 넘기지 않고 알림
-    await sendMessage(env.TELEGRAM_CHAT_ID, `⚠️ 아침 리포트 생성 실패: ${message}`).catch(() => {});
+    await broadcast(env.TELEGRAM_CHAT_IDS, `⚠️ 아침 리포트 생성 실패: ${message}`).catch(() => {});
     return res.status(500).json({ ok: false, error: message });
   }
 }
