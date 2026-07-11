@@ -8,14 +8,21 @@ import { env } from "../lib/env";
 
 const shouldSend = process.argv.includes("--send");
 
-const text = await buildDigest();
-console.log("\n----- 다이제스트 미리보기 -----\n");
-console.log(text);
-console.log("\n------------------------------\n");
+async function main() {
+  const text = await buildDigest();
+  console.log("\n----- 다이제스트 미리보기 -----\n");
+  console.log(text);
+  console.log("\n------------------------------\n");
 
-if (shouldSend) {
-  await sendMessage(env.TELEGRAM_CHAT_ID, text);
-  console.log("텔레그램으로 발송했어요.");
-} else {
-  console.log("발송하려면 --send 플래그를 붙이세요 (npm run send:digest).");
+  if (shouldSend) {
+    await sendMessage(env.TELEGRAM_CHAT_ID, text);
+    console.log("텔레그램으로 발송했어요.");
+  } else {
+    console.log("발송하려면 --send 플래그를 붙이세요 (npm run send:digest).");
+  }
 }
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
