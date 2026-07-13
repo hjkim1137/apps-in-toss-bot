@@ -8,6 +8,7 @@ import {
 } from "./threads";
 import {
   getRecentMedia,
+  getFollowerCount as getInstagramFollowers,
   InstagramNotConnectedError,
   InstagramAuthError,
   type InstagramPost,
@@ -96,9 +97,13 @@ async function threadsReply(args: string[]): Promise<string> {
 
 async function instagramReply(args: string[]): Promise<string> {
   let posts: InstagramPost[];
+  let followers: number | null;
   try {
     // getRecentMedia 가 1~10 클램프·기본 5(NaN 포함)를 처리
-    posts = await getRecentMedia(parseInt(args[0] ?? "", 10));
+    [posts, followers] = await Promise.all([
+      getRecentMedia(parseInt(args[0] ?? "", 10)),
+      getInstagramFollowers(),
+    ]);
   } catch (e) {
     if (e instanceof InstagramNotConnectedError || e instanceof InstagramAuthError) {
       return "📷 Instagram 연결이 만료됐어요 — 토큰 갱신이 필요해요.";
@@ -106,9 +111,10 @@ async function instagramReply(args: string[]): Promise<string> {
     return `📷 Instagram 조회 실패: ${(e as Error).message}`;
   }
 
-  if (posts.length === 0) return "📷 최근 게시물이 없어요.";
+  const header = followers != null ? `📷 팔로워 ${fmt(followers)}` : "📷 Instagram";
+  if (posts.length === 0) return `${header} · 최근 게시물이 없어요.`;
 
-  const lines: string[] = [`📷 최근 게시물 ${posts.length}개`, ""];
+  const lines: string[] = [`${header} · 최근 게시물 ${posts.length}개`, ""];
   for (const p of posts) {
     const date = kstShortDate(p.timestamp);
     const caption = (p.caption ?? "").replace(/\s+/g, " ").trim().slice(0, 20) || "(캡션 없음)";
