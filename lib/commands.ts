@@ -2,6 +2,7 @@
 import { getAppStats, type AppKey } from "./supabase";
 import {
   getRecentPosts,
+  getFollowerCount as getThreadsFollowers,
   ThreadsNotConnectedError,
   ThreadsAuthError,
   type ThreadsPost,
@@ -71,9 +72,13 @@ async function usersReply(args: string[]): Promise<string> {
 
 async function threadsReply(args: string[]): Promise<string> {
   let posts: ThreadsPost[];
+  let followers: number | null;
   try {
     // getRecentPosts 가 1~10 클램프·기본 5(NaN 포함)를 처리
-    posts = await getRecentPosts(parseInt(args[0] ?? "", 10));
+    [posts, followers] = await Promise.all([
+      getRecentPosts(parseInt(args[0] ?? "", 10)),
+      getThreadsFollowers(),
+    ]);
   } catch (e) {
     if (e instanceof ThreadsNotConnectedError || e instanceof ThreadsAuthError) {
       return "🧵 Threads 연결이 만료됐어요 — 토큰 갱신이 필요해요.";
@@ -81,9 +86,10 @@ async function threadsReply(args: string[]): Promise<string> {
     return `🧵 Threads 조회 실패: ${(e as Error).message}`;
   }
 
-  if (posts.length === 0) return "🧵 최근 게시물이 없어요.";
+  const header = followers != null ? `🧵 팔로워 ${fmt(followers)}` : "🧵 Threads";
+  if (posts.length === 0) return `${header} · 최근 게시물이 없어요.`;
 
-  const lines: string[] = [`🧵 최근 게시물 ${posts.length}개`, ""];
+  const lines: string[] = [`${header} · 최근 게시물 ${posts.length}개`, ""];
   for (const p of posts) {
     const date = kstShortDate(p.timestamp);
     const body = (p.text ?? "").replace(/\s+/g, " ").trim().slice(0, 20) || "(본문 없음)";
