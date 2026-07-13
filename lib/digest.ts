@@ -44,48 +44,26 @@ function appBlock(s: AppStats): string[] {
   return lines;
 }
 
-/** Threads 섹션(옵션). 토큰 미설정이면 섹션 자체를 생략한다. */
-async function threadsBlock(now: Date): Promise<string[] | null> {
-  try {
-    const [posts, followers, prevRaw] = await Promise.all([
-      getRecentPosts(10),
-      getThreadsFollowers(),
-      kvGet(FOLLOWERS_KEY).catch(() => null),
-    ]);
-
-    const { yesterday, today } = kstDays(now);
-    const yStart = Date.parse(yesterday.utcMidnightIso);
-    const yEnd = Date.parse(today.utcMidnightIso);
-    const yPosts = posts.filter((p) => {
-      const t = Date.parse(p.timestamp);
-      return t >= yStart && t < yEnd;
-    });
-    const maxViews = yPosts.reduce((m, p) => Math.max(m, p.views ?? 0), 0);
-
-    const lines = ["🧵 Threads"];
-    if (followers != null) {
-      const prev = prevRaw != null ? Number(prevRaw) : NaN;
-      const deltaStr = Number.isFinite(prev) ? ` (${deltaMark(followers, prev)})` : "";
-      lines.push(` · 팔로워 ${fmt(followers)}${deltaStr}`);
-      await kvSet(FOLLOWERS_KEY, String(followers)).catch(() => {});
-    }
-    lines.push(
-      ` · 어제 게시물 ${yPosts.length}건${yPosts.length ? ` · 최고 조회 ${compact(maxViews)}` : ""}`,
-    );
-    return lines;
-  } catch (e) {
-    if (e instanceof ThreadsNotConnectedError) return null; // 미설정 → 섹션 생략
-    return ["🧵 Threads · 조회 실패 (토큰 확인 필요)"]; // 만료/오류 → 침묵하지 않고 안내
-  }
+interface SocialPost {
+  timestamp: string; // ISO
+  views?: number;
 }
 
-/** Instagram 섹션(옵션). 토큰 미설정이면 섹션 생략. */
-async function instagramBlock(now: Date): Promise<string[] | null> {
+interface SocialConfig {
+  label: string; // "🧵 Threads" | "📷 Instagram"
+  getPosts: (limit: number) => Promise<SocialPost[]>;
+  getFollowers: () => Promise<number | null>;
+  followersKey: string;
+  NotConnected: new (message?: string) => Error;
+}
+
+/** SNS 섹션(옵션): 팔로워(전일 대비) + 어제 게시물 수·최고 조회수. 토큰 미설정이면 섹션 생략. */
+async function socialBlock(now: Date, cfg: SocialConfig): Promise<string[] | null> {
   try {
     const [posts, followers, prevRaw] = await Promise.all([
-      getRecentMedia(10),
-      getInstagramFollowers(),
-      kvGet(IG_FOLLOWERS_KEY).catch(() => null),
+      cfg.getPosts(10),
+      cfg.getFollowers(),
+      kvGet(cfg.followersKey).catch(() => null),
     ]);
 
     const { yesterday, today } = kstDays(now);
@@ -98,20 +76,20 @@ async function instagramBlock(now: Date): Promise<string[] | null> {
     const views = yPosts.map((p) => p.views).filter((v): v is number => v != null);
     const maxViews = views.length ? Math.max(...views) : null;
 
-    const lines = ["📷 Instagram"];
+    const lines = [cfg.label];
     if (followers != null) {
       const prev = prevRaw != null ? Number(prevRaw) : NaN;
       const deltaStr = Number.isFinite(prev) ? ` (${deltaMark(followers, prev)})` : "";
       lines.push(` · 팔로워 ${fmt(followers)}${deltaStr}`);
-      await kvSet(IG_FOLLOWERS_KEY, String(followers)).catch(() => {});
+      await kvSet(cfg.followersKey, String(followers)).catch(() => {});
     }
     lines.push(
       ` · 어제 게시물 ${yPosts.length}건${maxViews != null ? ` · 최고 조회 ${compact(maxViews)}` : ""}`,
     );
     return lines;
   } catch (e) {
-    if (e instanceof InstagramNotConnectedError) return null; // 미설정 → 섹션 생략
-    return ["📷 Instagram · 조회 실패 (토큰 확인 필요)"];
+    if (e instanceof cfg.NotConnected) return null; // 미설정 → 섹션 생략
+    return [`${cfg.label} · 조회 실패 (토큰 확인 필요)`]; // 만료/오류 → 침묵하지 않고 안내
   }
 }
 
@@ -120,8 +98,20 @@ export async function buildDigest(now: Date = new Date()): Promise<string> {
   // 앱 집계·Threads·Instagram 은 서로 독립 → 병렬. 출력 순서는 sections 배열이 고정.
   const [[saju, plnl], threads, instagram] = await Promise.all([
     Promise.all([getAppStats("saju", now), getAppStats("plnl", now)]),
-    threadsBlock(now),
-    instagramBlock(now),
+    socialBlock(now, {
+      label: "🧵 Threads",
+      getPosts: getRecentPosts,
+      getFollowers: getThreadsFollowers,
+      followersKey: FOLLOWERS_KEY,
+      NotConnected: ThreadsNotConnectedError,
+    }),
+    socialBlock(now, {
+      label: "📷 Instagram",
+      getPosts: getRecentMedia,
+      getFollowers: getInstagramFollowers,
+      followersKey: IG_FOLLOWERS_KEY,
+      NotConnected: InstagramNotConnectedError,
+    }),
   ]);
 
   const sections: string[][] = [

@@ -1,8 +1,14 @@
 // Instagram Graph API 연동 (Instagram 로그인 방식) — 최근 미디어/조회수/팔로워/토큰 갱신.
 // 프로페셔널(비즈니스·크리에이터) 계정 + instagram_business_basic·instagram_business_manage_insights 가정.
 import { env } from "./env";
-import { kvGet, kvSet } from "./kv";
 import { extractInsightValue, type InsightItem } from "./insights";
+import {
+  clampLimit,
+  currentToken,
+  refreshMetaToken,
+  type GraphError,
+  type TokenRefreshResult,
+} from "./meta";
 
 const GRAPH = "https://graph.instagram.com";
 const VERSION = "v21.0";
@@ -27,21 +33,11 @@ export class InstagramAuthError extends Error {
 export interface InstagramPost {
   id: string;
   caption: string;
-  mediaType: string; // IMAGE | VIDEO | CAROUSEL_ALBUM
   timestamp: string; // ISO
   permalink: string;
   views?: number; // 사진은 값이 없을 수 있음(그때는 미표기)
   likes?: number;
   comments?: number;
-}
-
-interface GraphError {
-  error?: { message?: string; code?: number; type?: string };
-}
-
-async function currentToken(): Promise<string | null> {
-  const stored = await kvGet(TOKEN_KEY).catch(() => null);
-  return stored ?? env.INSTAGRAM_ACCESS_TOKEN ?? null;
 }
 
 function graphErrorToThrow(json: GraphError, status: number): Error {
@@ -54,26 +50,25 @@ function graphErrorToThrow(json: GraphError, status: number): Error {
 async function getMediaViews(mediaId: string, token: string): Promise<number | undefined> {
   const url = `${GRAPH}/${VERSION}/${mediaId}/insights?metric=views&access_token=${encodeURIComponent(token)}`;
   const res = await fetch(url);
-  const json = (await res.json()) as GraphError & { data?: Array<InsightItem & { name: string }> };
+  const json = (await res.json()) as GraphError & { data?: InsightItem[] };
   if (!res.ok) throw graphErrorToThrow(json, res.status);
-  const item = (json.data ?? []).find((d) => d.name === "views") ?? json.data?.[0];
+  const item = json.data?.[0];
   return item ? extractInsightValue(item) : undefined;
 }
 
 /** 최근 미디어 목록 + 각 미디어 조회수. limit 1~10 */
 export async function getRecentMedia(limit = 5): Promise<InstagramPost[]> {
-  const token = await currentToken();
+  const token = await currentToken(TOKEN_KEY, env.INSTAGRAM_ACCESS_TOKEN);
   if (!token) throw new InstagramNotConnectedError();
 
-  const n = Math.min(Math.max(Math.floor(limit) || 5, 1), 10);
-  const fields = "id,caption,media_type,timestamp,permalink,like_count,comments_count";
+  const n = clampLimit(limit);
+  const fields = "id,caption,timestamp,permalink,like_count,comments_count";
   const listUrl = `${GRAPH}/${VERSION}/me/media?fields=${fields}&limit=${n}&access_token=${encodeURIComponent(token)}`;
   const res = await fetch(listUrl);
   const json = (await res.json()) as GraphError & {
     data?: Array<{
       id: string;
       caption?: string;
-      media_type?: string;
       timestamp: string;
       permalink: string;
       like_count?: number;
@@ -85,7 +80,6 @@ export async function getRecentMedia(limit = 5): Promise<InstagramPost[]> {
   const posts: InstagramPost[] = (json.data ?? []).map((m) => ({
     id: m.id,
     caption: m.caption ?? "",
-    mediaType: m.media_type ?? "",
     timestamp: m.timestamp,
     permalink: m.permalink,
     likes: m.like_count,
@@ -107,7 +101,7 @@ export async function getRecentMedia(limit = 5): Promise<InstagramPost[]> {
 
 /** 팔로워 수. 실패/미설정 시 null */
 export async function getFollowerCount(): Promise<number | null> {
-  const token = await currentToken();
+  const token = await currentToken(TOKEN_KEY, env.INSTAGRAM_ACCESS_TOKEN);
   if (!token) return null;
   const url = `${GRAPH}/${VERSION}/me?fields=followers_count&access_token=${encodeURIComponent(token)}`;
   const res = await fetch(url);
@@ -116,39 +110,16 @@ export async function getFollowerCount(): Promise<number | null> {
   return json.followers_count ?? null;
 }
 
-export interface TokenRefreshResult {
-  refreshed: boolean;
-  reason?: string;
-  expiresAt?: string;
-}
-
-/** 만료 thresholdDays 이내면 장기 토큰(60일)을 ig_refresh_token 으로 갱신하고 ops_kv 에 저장. */
-export async function refreshTokenIfNeeded(thresholdDays = 7): Promise<TokenRefreshResult> {
-  const [token, storedExpiry] = await Promise.all([
-    currentToken(),
-    kvGet(EXPIRES_KEY).catch(() => null),
-  ]);
-  if (!token) return { refreshed: false, reason: "no-token" };
-
-  const now = Date.now();
-  const thresholdMs = thresholdDays * 24 * 60 * 60 * 1000;
-  if (storedExpiry) {
-    const expiresAt = Date.parse(storedExpiry);
-    if (!Number.isNaN(expiresAt) && expiresAt - now > thresholdMs) {
-      return { refreshed: false, reason: "still-valid", expiresAt: storedExpiry };
-    }
-  }
-
-  const url = `${GRAPH}/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(token)}`;
-  const res = await fetch(url);
-  const json = (await res.json()) as GraphError & { access_token?: string; expires_in?: number };
-  if (!res.ok || !json.access_token) {
-    return { refreshed: false, reason: `refresh-failed: ${json?.error?.message ?? `HTTP ${res.status}`}` };
-  }
-
-  const expiresIn = Number(json.expires_in ?? 0); // seconds (~60일)
-  const newExpiry = expiresIn > 0 ? new Date(now + expiresIn * 1000).toISOString() : undefined;
-  await kvSet(TOKEN_KEY, json.access_token);
-  if (newExpiry) await kvSet(EXPIRES_KEY, newExpiry);
-  return { refreshed: true, expiresAt: newExpiry };
+/** 만료 임박 시 장기 토큰(60일) 갱신. 공용 refreshMetaToken 위임. */
+export function refreshTokenIfNeeded(thresholdDays = 7): Promise<TokenRefreshResult> {
+  return refreshMetaToken(
+    {
+      baseUrl: GRAPH,
+      grantType: "ig_refresh_token",
+      tokenKey: TOKEN_KEY,
+      expiresKey: EXPIRES_KEY,
+      envToken: env.INSTAGRAM_ACCESS_TOKEN,
+    },
+    thresholdDays,
+  );
 }

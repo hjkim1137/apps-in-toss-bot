@@ -1,8 +1,14 @@
 // Meta Threads API 연동 — 게시물 목록/인사이트/토큰 갱신 (§2-2).
 // 본인 계정 게시물만 조회하며, threads_basic + threads_manage_insights 권한을 가정한다.
 import { env } from "./env";
-import { kvGet, kvSet } from "./kv";
 import { extractInsightValue, type InsightItem } from "./insights";
+import {
+  clampLimit,
+  currentToken,
+  refreshMetaToken,
+  type GraphError,
+  type TokenRefreshResult,
+} from "./meta";
 
 const GRAPH = "https://graph.threads.net";
 const VERSION = "v1.0";
@@ -34,16 +40,6 @@ export interface ThreadsPost {
   replies?: number;
 }
 
-/** 저장된 토큰(우선) 또는 최초 env 토큰. 둘 다 없으면 null */
-async function currentToken(): Promise<string | null> {
-  const stored = await kvGet(TOKEN_KEY).catch(() => null);
-  return stored ?? env.THREADS_ACCESS_TOKEN ?? null;
-}
-
-interface GraphError {
-  error?: { message?: string; code?: number; type?: string };
-}
-
 function graphErrorToThrow(json: GraphError, status: number): Error {
   const msg = json?.error?.message ?? `HTTP ${status}`;
   // 401 또는 code 190 = 토큰 만료/무효 → ThreadsAuthError, 그 외는 일반 오류
@@ -70,10 +66,10 @@ async function getMediaInsights(
 
 /** 최근 게시물 목록 + 각 게시물 인사이트(조회수/좋아요/댓글). limit 1~10 */
 export async function getRecentPosts(limit = 5): Promise<ThreadsPost[]> {
-  const token = await currentToken();
+  const token = await currentToken(TOKEN_KEY, env.THREADS_ACCESS_TOKEN);
   if (!token) throw new ThreadsNotConnectedError();
 
-  const n = Math.min(Math.max(Math.floor(limit) || 5, 1), 10);
+  const n = clampLimit(limit);
   const listUrl = `${GRAPH}/${VERSION}/me/threads?fields=id,text,timestamp,permalink&limit=${n}&access_token=${encodeURIComponent(token)}`;
   const res = await fetch(listUrl);
   const json = (await res.json()) as GraphError & {
@@ -106,7 +102,7 @@ export async function getRecentPosts(limit = 5): Promise<ThreadsPost[]> {
 
 /** 계정 팔로워 수(옵션). 실패/미설정 시 null */
 export async function getFollowerCount(): Promise<number | null> {
-  const token = await currentToken();
+  const token = await currentToken(TOKEN_KEY, env.THREADS_ACCESS_TOKEN);
   if (!token) return null;
   const url = `${GRAPH}/${VERSION}/me/threads_insights?metric=followers_count&access_token=${encodeURIComponent(token)}`;
   const res = await fetch(url);
@@ -116,43 +112,16 @@ export async function getFollowerCount(): Promise<number | null> {
   return item ? extractInsightValue(item) : null;
 }
 
-interface TokenRefreshResult {
-  refreshed: boolean;
-  reason?: string;
-  expiresAt?: string;
-}
-
-/**
- * 만료 `thresholdDays` 이내면 장기 토큰을 갱신하고 ops_kv 에 저장(§2-2).
- * 최초 실행(저장된 만료시각 없음) 시에도 갱신을 시도해 kv 를 부트스트랩한다.
- * (갱신은 토큰이 발급 후 24시간 이상 경과해야 성공 — 갓 발급한 토큰이면 다음 날 성공)
- */
-export async function refreshTokenIfNeeded(thresholdDays = 7): Promise<TokenRefreshResult> {
-  const [token, storedExpiry] = await Promise.all([
-    currentToken(),
-    kvGet(EXPIRES_KEY).catch(() => null),
-  ]);
-  if (!token) return { refreshed: false, reason: "no-token" };
-
-  const now = Date.now();
-  const thresholdMs = thresholdDays * 24 * 60 * 60 * 1000;
-  if (storedExpiry) {
-    const expiresAt = Date.parse(storedExpiry);
-    if (!Number.isNaN(expiresAt) && expiresAt - now > thresholdMs) {
-      return { refreshed: false, reason: "still-valid", expiresAt: storedExpiry };
-    }
-  }
-
-  const url = `${GRAPH}/refresh_access_token?grant_type=th_refresh_token&access_token=${encodeURIComponent(token)}`;
-  const res = await fetch(url);
-  const json = (await res.json()) as GraphError & { access_token?: string; expires_in?: number };
-  if (!res.ok || !json.access_token) {
-    return { refreshed: false, reason: `refresh-failed: ${json?.error?.message ?? `HTTP ${res.status}`}` };
-  }
-
-  const expiresIn = Number(json.expires_in ?? 0); // seconds (~60일)
-  const newExpiry = expiresIn > 0 ? new Date(now + expiresIn * 1000).toISOString() : undefined;
-  await kvSet(TOKEN_KEY, json.access_token);
-  if (newExpiry) await kvSet(EXPIRES_KEY, newExpiry);
-  return { refreshed: true, expiresAt: newExpiry };
+/** 만료 임박 시 장기 토큰 갱신(§2-2). 공용 refreshMetaToken 위임. */
+export function refreshTokenIfNeeded(thresholdDays = 7): Promise<TokenRefreshResult> {
+  return refreshMetaToken(
+    {
+      baseUrl: GRAPH,
+      grantType: "th_refresh_token",
+      tokenKey: TOKEN_KEY,
+      expiresKey: EXPIRES_KEY,
+      envToken: env.THREADS_ACCESS_TOKEN,
+    },
+    thresholdDays,
+  );
 }
