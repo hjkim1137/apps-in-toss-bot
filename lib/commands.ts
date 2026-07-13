@@ -6,6 +6,12 @@ import {
   ThreadsAuthError,
   type ThreadsPost,
 } from "./threads";
+import {
+  getRecentMedia,
+  InstagramNotConnectedError,
+  InstagramAuthError,
+  type InstagramPost,
+} from "./instagram";
 import { kstShortDate } from "./time";
 import { fmt } from "./format";
 
@@ -23,6 +29,10 @@ export async function handleCommand(raw: string): Promise<string | null> {
       return usersReply(args);
     case "threads":
       return threadsReply(args);
+    case "instagram":
+    case "insta":
+    case "ig":
+      return instagramReply(args);
     case "help":
     case "start":
       return helpReply();
@@ -84,6 +94,36 @@ async function threadsReply(args: string[]): Promise<string> {
   return lines.join("\n").trimEnd();
 }
 
+async function instagramReply(args: string[]): Promise<string> {
+  let posts: InstagramPost[];
+  try {
+    // getRecentMedia 가 1~10 클램프·기본 5(NaN 포함)를 처리
+    posts = await getRecentMedia(parseInt(args[0] ?? "", 10));
+  } catch (e) {
+    if (e instanceof InstagramNotConnectedError || e instanceof InstagramAuthError) {
+      return "📷 Instagram 연결이 만료됐어요 — 토큰 갱신이 필요해요.";
+    }
+    return `📷 Instagram 조회 실패: ${(e as Error).message}`;
+  }
+
+  if (posts.length === 0) return "📷 최근 게시물이 없어요.";
+
+  const lines: string[] = [`📷 최근 게시물 ${posts.length}개`, ""];
+  for (const p of posts) {
+    const date = kstShortDate(p.timestamp);
+    const caption = (p.caption ?? "").replace(/\s+/g, " ").trim().slice(0, 20) || "(캡션 없음)";
+    lines.push(`${date} · ${caption}`);
+    const metrics: string[] = [];
+    if (p.views != null) metrics.push(`👁 ${fmt(p.views)}`);
+    metrics.push(`❤️ ${fmt(p.likes ?? 0)}`);
+    metrics.push(`💬 ${fmt(p.comments ?? 0)}`);
+    lines.push(` ${metrics.join(" · ")}`);
+    lines.push(` ${p.permalink}`);
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd();
+}
+
 function helpReply(): string {
   return [
     "🤖 운영 알림 봇",
@@ -92,6 +132,7 @@ function helpReply(): string {
     "/users saju | plnl — 한 앱만",
     "/threads — 최근 게시물 5개 성과",
     "/threads 10 — 최근 N개 (최대 10)",
+    "/instagram — 인스타 팔로워·최근 게시물 조회수",
     "/help — 이 도움말",
     "",
     "매일 아침 9시(KST)에 다이제스트를 보내드려요.",

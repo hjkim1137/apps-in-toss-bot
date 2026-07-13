@@ -1,6 +1,17 @@
 // 매일 아침 다이제스트 텍스트 생성 (§F1).
 import { getAppStats, type AppStats } from "./supabase";
-import { getFollowerCount, getRecentPosts, FOLLOWERS_KEY, ThreadsNotConnectedError } from "./threads";
+import {
+  getFollowerCount as getThreadsFollowers,
+  getRecentPosts,
+  FOLLOWERS_KEY,
+  ThreadsNotConnectedError,
+} from "./threads";
+import {
+  getFollowerCount as getInstagramFollowers,
+  getRecentMedia,
+  IG_FOLLOWERS_KEY,
+  InstagramNotConnectedError,
+} from "./instagram";
 import { kvGet, kvSet } from "./kv";
 import { kstDays, kstDateLabel } from "./time";
 import { fmt } from "./format";
@@ -38,7 +49,7 @@ async function threadsBlock(now: Date): Promise<string[] | null> {
   try {
     const [posts, followers, prevRaw] = await Promise.all([
       getRecentPosts(10),
-      getFollowerCount(),
+      getThreadsFollowers(),
       kvGet(FOLLOWERS_KEY).catch(() => null),
     ]);
 
@@ -68,12 +79,49 @@ async function threadsBlock(now: Date): Promise<string[] | null> {
   }
 }
 
+/** Instagram 섹션(옵션). 토큰 미설정이면 섹션 생략. */
+async function instagramBlock(now: Date): Promise<string[] | null> {
+  try {
+    const [posts, followers, prevRaw] = await Promise.all([
+      getRecentMedia(10),
+      getInstagramFollowers(),
+      kvGet(IG_FOLLOWERS_KEY).catch(() => null),
+    ]);
+
+    const { yesterday, today } = kstDays(now);
+    const yStart = Date.parse(yesterday.utcMidnightIso);
+    const yEnd = Date.parse(today.utcMidnightIso);
+    const yPosts = posts.filter((p) => {
+      const t = Date.parse(p.timestamp);
+      return t >= yStart && t < yEnd;
+    });
+    const views = yPosts.map((p) => p.views).filter((v): v is number => v != null);
+    const maxViews = views.length ? Math.max(...views) : null;
+
+    const lines = ["📷 Instagram"];
+    if (followers != null) {
+      const prev = prevRaw != null ? Number(prevRaw) : NaN;
+      const deltaStr = Number.isFinite(prev) ? ` (${deltaMark(followers, prev)})` : "";
+      lines.push(` · 팔로워 ${fmt(followers)}${deltaStr}`);
+      await kvSet(IG_FOLLOWERS_KEY, String(followers)).catch(() => {});
+    }
+    lines.push(
+      ` · 어제 게시물 ${yPosts.length}건${maxViews != null ? ` · 최고 조회 ${compact(maxViews)}` : ""}`,
+    );
+    return lines;
+  } catch (e) {
+    if (e instanceof InstagramNotConnectedError) return null; // 미설정 → 섹션 생략
+    return ["📷 Instagram · 조회 실패 (토큰 확인 필요)"];
+  }
+}
+
 export async function buildDigest(now: Date = new Date()): Promise<string> {
   const { today } = kstDays(now);
-  // 앱 집계와 Threads 조회는 서로 독립 → 병렬. 출력 순서는 sections 배열이 고정.
-  const [[saju, plnl], threads] = await Promise.all([
+  // 앱 집계·Threads·Instagram 은 서로 독립 → 병렬. 출력 순서는 sections 배열이 고정.
+  const [[saju, plnl], threads, instagram] = await Promise.all([
     Promise.all([getAppStats("saju", now), getAppStats("plnl", now)]),
     threadsBlock(now),
+    instagramBlock(now),
   ]);
 
   const sections: string[][] = [
@@ -82,6 +130,7 @@ export async function buildDigest(now: Date = new Date()): Promise<string> {
     appBlock(plnl),
   ];
   if (threads) sections.push(threads);
+  if (instagram) sections.push(instagram);
 
   return sections.map((s) => s.join("\n")).join("\n\n");
 }

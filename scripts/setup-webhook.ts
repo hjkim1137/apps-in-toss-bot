@@ -7,6 +7,7 @@ import { env } from "../lib/env";
 const commands: BotCommand[] = [
   { command: "users", description: "유저 현황 (누적·오늘·어제 신규)" },
   { command: "threads", description: "최근 게시물 성과" },
+  { command: "instagram", description: "인스타 팔로워·게시물 조회수" },
   { command: "help", description: "도움말" },
 ];
 

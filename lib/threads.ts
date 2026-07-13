@@ -2,6 +2,7 @@
 // 본인 계정 게시물만 조회하며, threads_basic + threads_manage_insights 권한을 가정한다.
 import { env } from "./env";
 import { kvGet, kvSet } from "./kv";
+import { extractInsightValue, type InsightItem } from "./insights";
 
 const GRAPH = "https://graph.threads.net";
 const VERSION = "v1.0";
@@ -48,18 +49,6 @@ function graphErrorToThrow(json: GraphError, status: number): Error {
   // 401 또는 code 190 = 토큰 만료/무효 → ThreadsAuthError, 그 외는 일반 오류
   if (status === 401 || json?.error?.code === 190) return new ThreadsAuthError(msg);
   return new Error(`Threads API 오류: ${msg}`);
-}
-
-interface InsightItem {
-  name?: string;
-  total_value?: { value?: number };
-  values?: Array<{ value?: number }>;
-}
-
-function extractInsightValue(item: InsightItem): number {
-  if (item?.total_value?.value != null) return item.total_value.value;
-  const v = item?.values?.[0]?.value;
-  return v != null ? v : 0;
 }
 
 async function getMediaInsights(

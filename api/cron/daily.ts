@@ -4,7 +4,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { env } from "../../lib/env";
 import { buildDigest } from "../../lib/digest";
 import { broadcast } from "../../lib/telegram";
-import { refreshTokenIfNeeded } from "../../lib/threads";
+import { refreshTokenIfNeeded as refreshThreadsToken } from "../../lib/threads";
+import { refreshTokenIfNeeded as refreshInstagramToken } from "../../lib/instagram";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Vercel cron 은 CRON_SECRET env 가 있으면 Authorization: Bearer <CRON_SECRET> 를 자동 첨부한다.
@@ -18,15 +19,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     // 다이제스트가 최신 토큰을 쓰도록 갱신을 먼저 시도(실패해도 다이제스트는 계속)
-    const token = await refreshTokenIfNeeded().catch((e) => ({
-      refreshed: false,
-      reason: (e as Error).message,
-    }));
+    const [threads, instagram] = await Promise.all([
+      refreshThreadsToken().catch((e) => ({ refreshed: false, reason: (e as Error).message })),
+      refreshInstagramToken().catch((e) => ({ refreshed: false, reason: (e as Error).message })),
+    ]);
 
     const text = await buildDigest();
     await broadcast(env.TELEGRAM_CHAT_IDS, text);
 
-    return res.status(200).json({ ok: true, token });
+    return res.status(200).json({ ok: true, tokens: { threads, instagram } });
   } catch (e) {
     const message = (e as Error).message;
     // 실패도 조용히 넘기지 않고 알림

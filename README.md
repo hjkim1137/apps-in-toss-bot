@@ -11,8 +11,9 @@
 | # | 기능 | 설명 |
 |---|------|------|
 | F1 | 매일 아침 다이제스트 | 09:00 KST 텔레그램 푸시 — 앱별 누적/어제 신규/전일 대비 |
-| F2 | 슬래시 조회 | `/users`, `/threads`, `/help` |
+| F2 | 슬래시 조회 | `/users`, `/threads`, `/instagram`, `/help` |
 | F3 | Threads 연동 | 본인 계정 최근 게시물 views·replies·likes + 팔로워 수 |
+| F4 | Instagram 연동 | 프로페셔널 계정 최근 게시물 views·likes·comments + 팔로워 수 |
 
 ## 구조
 
@@ -45,10 +46,10 @@ sql/ops_kv.sql       # ops_kv 테이블 DDL (뺄래낼래 Supabase 에 실행)
 
 1. 텔레그램 `@BotFather` → `/newbot` → **봇 토큰** 확보
 2. 봇에게 아무 말 걸고 `@userinfobot` 등으로 **본인 chat_id** 확인
-3. Meta for Developers → 앱 → **Threads 유스케이스** → `threads_basic`,`threads_manage_insights` 승인 → **장기 토큰** (선택, F3용)
+3. Meta for Developers → 앱 → **Threads / Instagram 유스케이스** → 각 인사이트 권한 승인 → **장기 토큰**(선택, F3·F4용). Instagram 은 프로페셔널(비즈니스·크리에이터) 계정 필요.
 4. Supabase 두 프로젝트 → Settings → API → **service role 키 2개**
 5. **사주몬 Supabase SQL Editor 에서 `sajumon-apps-in-toss/supabase/schema.sql` 실행** — `created_at` 을 KST wall-clock 으로 마이그레이션 (F1 집계 정확성에 필수)
-6. 뺄래낼래 Supabase SQL Editor 에서 `sql/ops_kv.sql` 실행 (F3용)
+6. 뺄래낼래 Supabase SQL Editor 에서 `sql/ops_kv.sql` 실행 (F3·F4용)
 7. Vercel 새 프로젝트로 이 레포 연결 후 아래 env 등록
 
 ## 환경변수 (`.env.example` 참고)
@@ -57,7 +58,7 @@ sql/ops_kv.sql       # ops_kv 테이블 DDL (뺄래낼래 Supabase 에 실행)
 TELEGRAM_BOT_TOKEN            TELEGRAM_CHAT_ID            TELEGRAM_WEBHOOK_SECRET
 SAJUMON_SUPABASE_URL         SAJUMON_SERVICE_ROLE_KEY
 PLNL_SUPABASE_URL            PLNL_SERVICE_ROLE_KEY
-THREADS_ACCESS_TOKEN(선택)    CRON_SECRET
+THREADS_ACCESS_TOKEN(선택)    INSTAGRAM_ACCESS_TOKEN(선택)    CRON_SECRET
 ```
 
 - `TELEGRAM_CHAT_ID` 은 쉼표로 여러 명 지정 가능(화이트리스트 + 다이제스트 수신자). 예: `111,222`. 각자 봇에게 Start 필요.
@@ -97,6 +98,8 @@ npm run setup:webhook -- https://<배포도메인>/api/telegram
 | `/users saju` · `/users plnl` | 해당 앱만 (사주몬/뺄래낼래 텍스트도 허용) |
 | `/threads` | 최근 게시물 5개 — 날짜·본문 앞 20자·👁 views·💬 replies·❤️ likes·링크 |
 | `/threads 10` | 최근 N개 (최대 10) |
+| `/instagram` | 인스타 최근 게시물 5개 — 날짜·캡션 앞 20자·👁 views·❤️ likes·💬 comments·링크 |
+| `/instagram 10` | 최근 N개 (최대 10) |
 | `/help` | 명령 목록 |
 | 미등록 chat_id | 무응답 |
 

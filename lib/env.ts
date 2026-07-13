@@ -39,9 +39,12 @@ export const env = {
   get PLNL_SERVICE_ROLE_KEY() {
     return required("PLNL_SERVICE_ROLE_KEY");
   },
-  // 선택값 — 없으면 Threads 기능만 비활성
+  // 선택값 — 없으면 해당 기능(Threads/Instagram)만 비활성
   get THREADS_ACCESS_TOKEN() {
     return optional("THREADS_ACCESS_TOKEN");
+  },
+  get INSTAGRAM_ACCESS_TOKEN() {
+    return optional("INSTAGRAM_ACCESS_TOKEN");
   },
   get CRON_SECRET() {
     return optional("CRON_SECRET");
